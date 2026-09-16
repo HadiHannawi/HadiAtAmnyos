@@ -14,6 +14,7 @@ export function loadSampleData(): void {
     status: "in-progress",
     priority: "high",
     notes: "Waiting on network topology sign-off from the client's infra lead.",
+    link: "https://dev.azure.com/amnyos/landing-zone",
     tags: ["Azure", "Client", "AI"],
     relatedDocumentIds: [],
   });
@@ -24,6 +25,7 @@ export function loadSampleData(): void {
     status: "idea",
     priority: "medium",
     notes: "",
+    link: "",
     tags: ["SharePoint", "Internal"],
     relatedDocumentIds: [],
   });
@@ -35,6 +37,7 @@ export function loadSampleData(): void {
     localPath: "C:\\Users\\HadiHannawi\\Documents\\Amnyos\\LandingZone.pptx",
     url: "",
     relatedProjectId: azureProject.id,
+    attachment: null,
     tags: ["Azure", "Cowork"],
   });
   store.updateProject(azureProject.id, { relatedDocumentIds: [doc.id] });

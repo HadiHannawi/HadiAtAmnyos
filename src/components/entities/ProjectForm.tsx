@@ -25,6 +25,7 @@ export function ProjectForm({ initial, onSubmit, onCancel }: ProjectFormProps) {
   const [status, setStatus] = useState<ProjectStatus>(initial?.status ?? "idea");
   const [priority, setPriority] = useState<Priority>(initial?.priority ?? "medium");
   const [notes, setNotes] = useState(initial?.notes ?? "");
+  const [link, setLink] = useState(initial?.link ?? "");
   const [tags, setTags] = useState<string[]>(initial?.tags ?? []);
 
   const handleSubmit = (e: FormEvent) => {
@@ -36,6 +37,7 @@ export function ProjectForm({ initial, onSubmit, onCancel }: ProjectFormProps) {
       status,
       priority,
       notes,
+      link: link.trim(),
       tags,
       relatedDocumentIds: initial?.relatedDocumentIds ?? [],
     });
@@ -77,6 +79,17 @@ export function ProjectForm({ initial, onSubmit, onCancel }: ProjectFormProps) {
       <div>
         <Label htmlFor="notes">Notes</Label>
         <Textarea id="notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
+      </div>
+
+      <div>
+        <Label htmlFor="link">Project link</Label>
+        <Input
+          id="link"
+          type="url"
+          value={link}
+          onChange={(e) => setLink(e.target.value)}
+          placeholder="https://dev.azure.com/... or Teams/SharePoint link"
+        />
       </div>
 
       <div>

@@ -30,6 +30,13 @@ const kindIcon: Record<EntityKind, LucideIcon> = {
   person: Users,
 };
 
+function greeting(): string {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 18) return "Good afternoon";
+  return "Good evening";
+}
+
 export default function Dashboard() {
   const projects = useAppStore((s) => s.projects);
   const tasks = useAppStore((s) => s.tasks);
@@ -84,8 +91,10 @@ export default function Dashboard() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-xl font-semibold">Dashboard</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Your workspace at a glance.</p>
+        <h1 className="text-xl font-semibold">{greeting()}</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })} — here's your workspace at a glance.
+        </p>
       </div>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">

@@ -26,7 +26,18 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: STORAGE_KEY,
-      version: 1,
+      version: 2,
+      // v1 -> v2: Project gained `link`, AppDocument gained `attachment`.
+      // Old persisted data won't have these keys, so back-fill safe
+      // defaults rather than letting `undefined` leak into components.
+      migrate: (persisted) => {
+        const state = persisted as AppState;
+        return {
+          ...state,
+          projects: (state.projects ?? []).map((p) => ({ ...p, link: p.link ?? "" })),
+          documents: (state.documents ?? []).map((d) => ({ ...d, attachment: d.attachment ?? null })),
+        };
+      },
     }
   )
 );

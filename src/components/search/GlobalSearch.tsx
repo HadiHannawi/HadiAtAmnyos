@@ -62,7 +62,7 @@ export function GlobalSearch() {
       </div>
 
       {open && query.trim() && (
-        <div className="absolute left-0 right-0 top-full z-40 mt-1.5 max-h-96 overflow-y-auto rounded-md border border-border bg-card shadow-panel">
+        <div className="absolute left-0 right-0 top-full z-40 mt-1.5 max-h-96 overflow-y-auto rounded-md border border-border bg-card shadow-panel animate-in fade-in slide-in-from-top-1 duration-150">
           {results.length === 0 ? (
             <p className="px-3 py-4 text-center text-sm text-muted-foreground">No matches for "{query}"</p>
           ) : (

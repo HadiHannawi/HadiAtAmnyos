@@ -1,8 +1,12 @@
 import { useAppStore } from "@/store/useAppStore";
 import { useUiStore } from "@/store/uiStore";
-import { CURRENT_SCHEMA_VERSION, type BackupData, type BackupPayload } from "./exportData";
+import { saveFile, deleteFile, base64ToBlob } from "@/services/fileStorage";
+import { generateId } from "@/utils/id";
+import type { BaseEntity } from "@/types";
+import { CURRENT_SCHEMA_VERSION, type BackupData, type BackupPayload, type BackupFileEntry } from "./exportData";
 
 const DATA_KEYS = ["projects", "tasks", "documents", "meetings", "ideas", "people"] as const;
+type DataKey = (typeof DATA_KEYS)[number];
 
 export interface ValidationResult {
   valid: boolean;
@@ -12,13 +16,24 @@ export interface ValidationResult {
 
 /**
  * Migration chain: each entry migrates a payload FROM that key's schema
- * version to the next one. Empty today because schema v1 is all that has
- * ever existed — when the shape changes, add e.g. `1: migrateV1toV2` and
- * bump CURRENT_SCHEMA_VERSION in exportData.ts. `migrate()` below walks the
- * chain automatically, so older backups keep importing after future changes.
+ * version to the next one. `migrate()` below walks the chain automatically,
+ * so an old backup keeps importing after the shape changes — add a new
+ * entry here (and bump CURRENT_SCHEMA_VERSION in exportData.ts) whenever
+ * BackupData's shape changes again.
  */
 type Migration = (payload: BackupPayload) => BackupPayload;
-const migrations: Record<number, Migration> = {};
+const migrations: Record<number, Migration> = {
+  // v1 -> v2: Project gained `link`, AppDocument gained `attachment`.
+  1: (payload) => ({
+    ...payload,
+    schemaVersion: 2,
+    data: {
+      ...payload.data,
+      projects: payload.data.projects.map((p) => ({ ...p, link: p.link ?? "" })),
+      documents: payload.data.documents.map((d) => ({ ...d, attachment: d.attachment ?? null })),
+    },
+  }),
+};
 
 function migrate(payload: BackupPayload): BackupPayload {
   let current = payload;
@@ -62,6 +77,7 @@ function normalize(obj: Record<string, unknown>): BackupPayload {
     settings: { theme },
     data,
     tags: Array.isArray(obj.tags) ? (obj.tags as string[]) : [],
+    files: Array.isArray(obj.files) ? (obj.files as BackupFileEntry[]) : [],
   };
 }
 
@@ -96,6 +112,9 @@ export function validateBackup(raw: string): ValidationResult {
       }
     }
   }
+  if (obj.files !== undefined && !Array.isArray(obj.files)) {
+    errors.push('"files" must be an array.');
+  }
 
   if (errors.length > 0) return { valid: false, errors };
 
@@ -115,9 +134,100 @@ export async function validateBackupFile(file: File): Promise<ValidationResult> 
   return validateBackup(text);
 }
 
+async function restoreFiles(entries: BackupFileEntry[]): Promise<void> {
+  for (const entry of entries) {
+    await saveFile(entry.id, base64ToBlob(entry.data, entry.type));
+  }
+}
+
 /** Replaces the entire workspace with the given backup. Irreversible — callers must confirm with the user first. */
-export function restoreBackup(payload: BackupPayload): void {
+export async function restoreBackup(payload: BackupPayload): Promise<void> {
+  const oldDocuments = useAppStore.getState().documents;
+  const oldFileIds = new Set(oldDocuments.filter((d) => d.attachment).map((d) => d.attachment!.fileId));
+  const newFileIds = new Set(payload.data.documents.filter((d) => d.attachment).map((d) => d.attachment!.fileId));
+
   useAppStore.setState({ ...payload.data });
   useUiStore.setState({ theme: payload.settings.theme });
   useUiStore.getState().applyTheme();
+
+  await restoreFiles(payload.files);
+  for (const id of oldFileIds) {
+    if (!newFileIds.has(id)) deleteFile(id).catch(() => {});
+  }
+}
+
+// ---- Merge import: "adds on top of what's already there" ----
+
+export interface MergePreview {
+  newCounts: Record<DataKey, number>;
+  duplicateCounts: Record<DataKey, number>;
+  totalNew: number;
+  totalDuplicates: number;
+}
+
+/** A "duplicate" is an incoming entity whose `id` already exists locally — the natural
+ *  signal when the same backup (or an overlapping one) gets imported more than once. */
+export function previewMerge(payload: BackupPayload): MergePreview {
+  const state = useAppStore.getState();
+  const newCounts = {} as Record<DataKey, number>;
+  const duplicateCounts = {} as Record<DataKey, number>;
+  let totalNew = 0;
+  let totalDuplicates = 0;
+
+  for (const key of DATA_KEYS) {
+    const existingIds = new Set(state[key].map((e) => e.id));
+    let fresh = 0;
+    let dup = 0;
+    for (const item of payload.data[key]) {
+      if (existingIds.has(item.id)) dup++;
+      else fresh++;
+    }
+    newCounts[key] = fresh;
+    duplicateCounts[key] = dup;
+    totalNew += fresh;
+    totalDuplicates += dup;
+  }
+
+  return { newCounts, duplicateCounts, totalNew, totalDuplicates };
+}
+
+export type DuplicateStrategy = "skip" | "replace" | "keep-both";
+
+function mergeList<T extends BaseEntity>(existing: T[], incoming: T[], strategy: DuplicateStrategy): T[] {
+  const existingIds = new Set(existing.map((e) => e.id));
+  const result = [...existing];
+
+  for (const item of incoming) {
+    if (!existingIds.has(item.id)) {
+      result.push(item);
+      continue;
+    }
+    if (strategy === "skip") continue; // keep the local version, discard incoming
+    if (strategy === "replace") {
+      const idx = result.findIndex((e) => e.id === item.id);
+      if (idx !== -1) result[idx] = item; // incoming overwrites the local version
+      continue;
+    }
+    result.push({ ...item, id: generateId() }); // keep-both: add as a new, separate entry
+  }
+
+  return result;
+}
+
+/** Adds the backup's entities on top of the current workspace instead of replacing it.
+ *  `strategy` decides what happens to entities whose id already exists locally. Doesn't
+ *  touch theme — merging data shouldn't silently flip an unrelated UI preference. */
+export async function mergeBackup(payload: BackupPayload, strategy: DuplicateStrategy): Promise<void> {
+  const state = useAppStore.getState();
+
+  useAppStore.setState({
+    projects: mergeList(state.projects, payload.data.projects, strategy),
+    tasks: mergeList(state.tasks, payload.data.tasks, strategy),
+    documents: mergeList(state.documents, payload.data.documents, strategy),
+    meetings: mergeList(state.meetings, payload.data.meetings, strategy),
+    ideas: mergeList(state.ideas, payload.data.ideas, strategy),
+    people: mergeList(state.people, payload.data.people, strategy),
+  });
+
+  await restoreFiles(payload.files);
 }

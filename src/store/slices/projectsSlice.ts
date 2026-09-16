@@ -9,6 +9,7 @@ export interface NewProjectInput {
   status: ProjectStatus;
   priority: Priority;
   notes: string;
+  link: string;
   tags: string[];
   relatedDocumentIds: string[];
 }

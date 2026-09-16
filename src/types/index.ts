@@ -27,7 +27,16 @@ export interface Project extends BaseEntity {
   status: ProjectStatus;
   priority: Priority;
   notes: string;
+  link: string;
   relatedDocumentIds: string[];
+}
+
+/** A file's actual bytes live in IndexedDB (see services/fileStorage.ts), keyed by fileId — this is just the pointer + display metadata that's cheap to keep in the JSON-serialized store. */
+export interface DocumentAttachment {
+  fileId: string;
+  fileName: string;
+  fileSize: number;
+  fileType: string;
 }
 
 // Named AppDocument, not Document, to avoid shadowing the DOM's global `Document`.
@@ -38,6 +47,7 @@ export interface AppDocument extends BaseEntity {
   localPath: string;
   url: string;
   relatedProjectId: string | null;
+  attachment: DocumentAttachment | null;
 }
 
 export interface MeetingAction {

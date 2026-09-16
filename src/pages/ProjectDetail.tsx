@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
-import { ArrowLeft, Pencil, Trash2, FileText, Plus, X } from "lucide-react";
+import { ArrowLeft, Pencil, Trash2, FileText, Plus, X, ExternalLink } from "lucide-react";
 import { useAppStore } from "@/store/useAppStore";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
@@ -63,7 +63,19 @@ export default function ProjectDetail() {
         </button>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h1 className="text-xl font-semibold">{project.title}</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-semibold">{project.title}</h1>
+              {project.link && (
+                <a
+                  href={project.link}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-1 text-xs text-primary hover:underline"
+                >
+                  <ExternalLink size={13} /> Open link
+                </a>
+              )}
+            </div>
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
               <ProjectStatusBadge status={project.status} />
               <PriorityBadge priority={project.priority} />

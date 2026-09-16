@@ -1,19 +1,51 @@
 import { useRef, useState, type ChangeEvent } from "react";
-import { Download, Copy, Upload, ClipboardPaste, Check, AlertTriangle, Moon, Sun, Sparkles, Trash2 } from "lucide-react";
+import {
+  Download,
+  Copy,
+  Upload,
+  ClipboardPaste,
+  Check,
+  AlertTriangle,
+  Moon,
+  Sun,
+  Sparkles,
+  Trash2,
+  SkipForward,
+  Replace,
+  Layers,
+} from "lucide-react";
 import { useAppStore } from "@/store/useAppStore";
 import { useUiStore } from "@/store/uiStore";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { Modal } from "@/components/ui/Modal";
 import { Textarea, Label } from "@/components/ui/Input";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { downloadBackup, copyBackupToClipboard } from "@/utils/exportData";
-import { validateBackup, validateBackupFile, restoreBackup, type ValidationResult } from "@/utils/importData";
-import type { BackupPayload } from "@/utils/exportData";
+import { downloadBackup, copyBackupToClipboard, type BackupPayload } from "@/utils/exportData";
+import {
+  validateBackup,
+  validateBackupFile,
+  restoreBackup,
+  previewMerge,
+  mergeBackup,
+  type ValidationResult,
+  type MergePreview,
+  type DuplicateStrategy,
+} from "@/utils/importData";
 import { loadSampleData } from "@/services/sampleData";
 import { formatDateTime } from "@/utils/date";
 
-type PendingImport = { payload: BackupPayload; source: "file" | "paste" };
-type CopyStatus = "idle" | "copied" | "error";
+type PendingImport = { payload: BackupPayload; preview: MergePreview; source: "file" | "paste" };
+type Status = "idle" | "busy" | "done" | "error";
+
+const entityLabel: Record<string, string> = {
+  projects: "projects",
+  tasks: "tasks",
+  documents: "documents",
+  meetings: "meetings",
+  ideas: "ideas",
+  people: "people",
+};
 
 function ErrorList({ errors }: { errors: string[] }) {
   if (errors.length === 0) return null;
@@ -43,18 +75,33 @@ export default function Settings() {
   }));
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [copyStatus, setCopyStatus] = useState<CopyStatus>("idle");
+  const [exportStatus, setExportStatus] = useState<Status>("idle");
+  const [copyStatus, setCopyStatus] = useState<Status>("idle");
   const [fileErrors, setFileErrors] = useState<string[]>([]);
   const [pasteValue, setPasteValue] = useState("");
   const [pasteErrors, setPasteErrors] = useState<string[]>([]);
   const [pending, setPending] = useState<PendingImport | null>(null);
-  const [restoredAt, setRestoredAt] = useState<string | null>(null);
+  const [replaceConfirmOpen, setReplaceConfirmOpen] = useState(false);
+  const [importBusy, setImportBusy] = useState(false);
+  const [resultMessage, setResultMessage] = useState<string | null>(null);
   const [clearOpen, setClearOpen] = useState(false);
 
+  const handleExport = async () => {
+    setExportStatus("busy");
+    try {
+      await downloadBackup();
+      setExportStatus("idle");
+    } catch {
+      setExportStatus("error");
+      setTimeout(() => setExportStatus("idle"), 3000);
+    }
+  };
+
   const handleCopy = async () => {
+    setCopyStatus("busy");
     try {
       await copyBackupToClipboard();
-      setCopyStatus("copied");
+      setCopyStatus("done");
       setTimeout(() => setCopyStatus("idle"), 2000);
     } catch {
       setCopyStatus("error");
@@ -70,15 +117,15 @@ export default function Settings() {
     }
     if (source === "file") setFileErrors([]);
     else setPasteErrors([]);
-    setPending({ payload: result.payload, source });
+    setResultMessage(null);
+    setPending({ payload: result.payload, preview: previewMerge(result.payload), source });
   };
 
   const handleFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
-    const result = await validateBackupFile(file);
-    applyResult(result, "file");
+    applyResult(await validateBackupFile(file), "file");
   };
 
   const handlePasteImport = () => {
@@ -89,12 +136,28 @@ export default function Settings() {
     applyResult(validateBackup(pasteValue), "paste");
   };
 
-  const confirmRestore = () => {
-    if (!pending) return;
-    restoreBackup(pending.payload);
-    setRestoredAt(new Date().toISOString());
-    setPasteValue("");
+  const closeImport = () => {
     setPending(null);
+    setPasteValue("");
+  };
+
+  const handleMerge = async (strategy: DuplicateStrategy) => {
+    if (!pending) return;
+    setImportBusy(true);
+    await mergeBackup(pending.payload, strategy);
+    setImportBusy(false);
+    setResultMessage(`Added ${pending.preview.totalNew + pending.preview.totalDuplicates} items to your workspace.`);
+    closeImport();
+  };
+
+  const handleReplace = async () => {
+    if (!pending) return;
+    setImportBusy(true);
+    await restoreBackup(pending.payload);
+    setImportBusy(false);
+    setResultMessage("Workspace replaced with the imported backup.");
+    setReplaceConfirmOpen(false);
+    closeImport();
   };
 
   const pendingCounts = pending
@@ -132,13 +195,13 @@ export default function Settings() {
         <CardHeader>
           <div>
             <h2 className="text-sm font-semibold">Workspace</h2>
-            <p className="mt-1 text-xs text-muted-foreground">Everything below lives only in this browser's LocalStorage.</p>
+            <p className="mt-1 text-xs text-muted-foreground">Everything below lives only in this browser's storage.</p>
           </div>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-3 gap-3 text-sm sm:grid-cols-6">
             {Object.entries(counts).map(([key, value]) => (
-              <div key={key} className="rounded-md bg-muted px-3 py-2">
+              <div key={key} className="rounded-md bg-muted px-3 py-2.5 transition-colors hover:bg-accent">
                 <p className="text-base font-semibold">{value}</p>
                 <p className="text-xs capitalize text-muted-foreground">{key}</p>
               </div>
@@ -152,7 +215,7 @@ export default function Settings() {
           <div>
             <h2 className="text-sm font-semibold">Backup &amp; Restore</h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              Move your workspace between machines — export a JSON file here, import it on another browser.
+              Move your workspace between machines — export a JSON file here (uploaded files included), import it on another browser.
             </p>
           </div>
         </CardHeader>
@@ -160,12 +223,12 @@ export default function Settings() {
           <div>
             <p className="mb-2 text-xs font-medium text-muted-foreground">Export</p>
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" onClick={downloadBackup}>
-                <Download size={14} /> Export JSON
+              <Button size="sm" onClick={handleExport} disabled={exportStatus === "busy"}>
+                <Download size={14} /> {exportStatus === "busy" ? "Preparing…" : "Export JSON"}
               </Button>
-              <Button variant="outline" size="sm" onClick={handleCopy}>
-                {copyStatus === "copied" ? <Check size={14} /> : <Copy size={14} />}
-                {copyStatus === "copied" ? "Copied" : copyStatus === "error" ? "Copy failed" : "Copy JSON"}
+              <Button variant="outline" size="sm" onClick={handleCopy} disabled={copyStatus === "busy"}>
+                {copyStatus === "done" ? <Check size={14} /> : <Copy size={14} />}
+                {copyStatus === "busy" ? "Copying…" : copyStatus === "done" ? "Copied" : copyStatus === "error" ? "Copy failed" : "Copy JSON"}
               </Button>
             </div>
           </div>
@@ -186,7 +249,7 @@ export default function Settings() {
               id="paste"
               value={pasteValue}
               onChange={(e) => setPasteValue(e.target.value)}
-              placeholder='{"schemaVersion": 1, ...}'
+              placeholder='{"schemaVersion": 2, ...}'
               className="min-h-[120px] font-mono text-xs"
             />
             <Button variant="outline" size="sm" className="mt-2" onClick={handlePasteImport}>
@@ -195,9 +258,9 @@ export default function Settings() {
             <ErrorList errors={pasteErrors} />
           </div>
 
-          {restoredAt && (
+          {resultMessage && (
             <p className="flex items-center gap-1.5 text-sm text-success">
-              <Check size={14} /> Workspace restored at {formatDateTime(restoredAt)}
+              <Check size={14} /> {resultMessage}
             </p>
           )}
         </CardContent>
@@ -227,31 +290,80 @@ export default function Settings() {
         </CardContent>
       </Card>
 
+      <Modal open={!!pending} onClose={closeImport} title="Import backup" wide>
+        {pending && pendingCounts && (
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Backup from {formatDateTime(pending.payload.exportedAt)} — {pending.preview.totalNew + pending.preview.totalDuplicates} items total.
+            </p>
+
+            <ul className="grid grid-cols-3 gap-x-4 gap-y-1 text-xs text-muted-foreground">
+              {Object.entries(pendingCounts).map(([key, value]) => (
+                <li key={key}>
+                  {value} {entityLabel[key]}
+                </li>
+              ))}
+            </ul>
+
+            {pending.preview.totalDuplicates > 0 ? (
+              <div className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2.5 text-sm">
+                <p className="flex items-center gap-1.5 font-medium text-warning">
+                  <AlertTriangle size={14} /> {pending.preview.totalDuplicates} item{pending.preview.totalDuplicates === 1 ? "" : "s"} already in your workspace
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {pending.preview.totalNew} new item{pending.preview.totalNew === 1 ? "" : "s"} will be added either way. Choose what happens to the duplicates:
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" disabled={importBusy} onClick={() => handleMerge("skip")}>
+                    <SkipForward size={13} /> Skip duplicates
+                  </Button>
+                  <Button size="sm" variant="outline" disabled={importBusy} onClick={() => handleMerge("replace")}>
+                    <Replace size={13} /> Replace duplicates
+                  </Button>
+                  <Button size="sm" variant="outline" disabled={importBusy} onClick={() => handleMerge("keep-both")}>
+                    <Layers size={13} /> Keep both
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <Button size="sm" disabled={importBusy} onClick={() => handleMerge("skip")}>
+                {importBusy ? "Importing…" : `Add ${pending.preview.totalNew} item${pending.preview.totalNew === 1 ? "" : "s"} to workspace`}
+              </Button>
+            )}
+
+            <div className="flex items-center justify-between border-t border-border pt-3">
+              <button
+                type="button"
+                onClick={() => setReplaceConfirmOpen(true)}
+                className="text-xs text-destructive hover:underline"
+              >
+                Replace entire workspace instead
+              </button>
+              <Button variant="ghost" size="sm" onClick={closeImport} disabled={importBusy}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
       <ConfirmDialog
-        open={!!pending}
-        title="Restore workspace"
+        open={replaceConfirmOpen}
+        title="Replace entire workspace"
         description={
           pendingCounts && (
             <div className="space-y-2">
               <p>
-                This replaces your <strong>entire current workspace</strong> with the {pending?.source === "file" ? "imported file" : "pasted"} backup
-                {pending?.payload.exportedAt ? ` (exported ${formatDateTime(pending.payload.exportedAt)})` : ""}. This can't be undone.
+                This deletes everything currently in your workspace and replaces it with the{" "}
+                {pending?.source === "file" ? "imported file" : "pasted"} backup. This can't be undone.
               </p>
-              <ul className="grid grid-cols-3 gap-x-4 gap-y-1 text-xs">
-                <li>{pendingCounts.projects} projects</li>
-                <li>{pendingCounts.tasks} tasks</li>
-                <li>{pendingCounts.documents} documents</li>
-                <li>{pendingCounts.meetings} meetings</li>
-                <li>{pendingCounts.ideas} ideas</li>
-                <li>{pendingCounts.people} people</li>
-              </ul>
             </div>
           )
         }
         confirmLabel="Replace workspace"
         destructive
-        onCancel={() => setPending(null)}
-        onConfirm={confirmRestore}
+        onCancel={() => setReplaceConfirmOpen(false)}
+        onConfirm={handleReplace}
       />
 
       <ConfirmDialog

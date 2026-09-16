@@ -29,6 +29,15 @@ const navItems: NavItem[] = [
   { to: "/people", label: "People", icon: Users },
 ];
 
+function navLinkClass(isActive: boolean) {
+  return cn(
+    "group relative flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-medium transition-colors",
+    isActive
+      ? "bg-primary/10 text-primary"
+      : "text-muted-foreground hover:bg-accent hover:text-foreground"
+  );
+}
+
 interface SidebarProps {
   /** Rendered inside the mobile drawer, where it should always be visible (not `hidden md:flex`). */
   mobile?: boolean;
@@ -44,7 +53,7 @@ export function Sidebar({ mobile, onNavigate }: SidebarProps) {
       )}
     >
       <div className="mb-6 flex items-center gap-2 px-2">
-        <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground text-sm font-bold">
+        <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground text-sm font-bold shadow-sm">
           H
         </div>
         <span className="text-sm font-semibold">Hadi OS</span>
@@ -52,36 +61,26 @@ export function Sidebar({ mobile, onNavigate }: SidebarProps) {
 
       <nav className="flex-1 space-y-0.5">
         {navItems.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.end}
-            onClick={onNavigate}
-            className={({ isActive }) =>
-              cn(
-                "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
-                isActive && "bg-accent text-foreground"
-              )
-            }
-          >
-            <item.icon size={16} />
-            {item.label}
+          <NavLink key={item.to} to={item.to} end={item.end} onClick={onNavigate} className={({ isActive }) => navLinkClass(isActive)}>
+            {({ isActive }) => (
+              <>
+                {isActive && <span className="absolute -left-3 h-4 w-0.5 rounded-full bg-primary" />}
+                <item.icon size={16} />
+                {item.label}
+              </>
+            )}
           </NavLink>
         ))}
       </nav>
 
-      <NavLink
-        to="/settings"
-        onClick={onNavigate}
-        className={({ isActive }) =>
-          cn(
-            "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
-            isActive && "bg-accent text-foreground"
-          )
-        }
-      >
-        <Settings size={16} />
-        Settings
+      <NavLink to="/settings" onClick={onNavigate} className={({ isActive }) => navLinkClass(isActive)}>
+        {({ isActive }) => (
+          <>
+            {isActive && <span className="absolute -left-3 h-4 w-0.5 rounded-full bg-primary" />}
+            <Settings size={16} />
+            Settings
+          </>
+        )}
       </NavLink>
     </aside>
   );

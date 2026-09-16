@@ -1,7 +1,8 @@
 import type { StateCreator } from "zustand";
-import type { AppDocument, DocumentType } from "@/types";
+import type { AppDocument, DocumentType, DocumentAttachment } from "@/types";
 import type { AppState } from "../types";
 import { generateId } from "@/utils/id";
+import { deleteFile } from "@/services/fileStorage";
 
 export interface NewDocumentInput {
   title: string;
@@ -10,6 +11,7 @@ export interface NewDocumentInput {
   localPath: string;
   url: string;
   relatedProjectId: string | null;
+  attachment: DocumentAttachment | null;
   tags: string[];
 }
 
@@ -20,7 +22,7 @@ export interface DocumentsSlice {
   deleteDocument: (id: string) => void;
 }
 
-export const createDocumentsSlice: StateCreator<AppState, [], [], DocumentsSlice> = (set) => ({
+export const createDocumentsSlice: StateCreator<AppState, [], [], DocumentsSlice> = (set, get) => ({
   documents: [],
 
   addDocument: (input) => {
@@ -38,7 +40,13 @@ export const createDocumentsSlice: StateCreator<AppState, [], [], DocumentsSlice
     }));
   },
 
+  // Best-effort: also frees the attachment's bytes out of IndexedDB so
+  // deleting a document doesn't silently leak storage forever.
   deleteDocument: (id) => {
+    const doc = get().documents.find((d) => d.id === id);
+    if (doc?.attachment) {
+      deleteFile(doc.attachment.fileId).catch(() => {});
+    }
     set((state) => ({
       documents: state.documents.filter((d) => d.id !== id),
       projects: state.projects.map((p) => ({
