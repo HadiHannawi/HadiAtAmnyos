@@ -1,0 +1,11 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# Hadi OS is a client-side SPA (react-router). Without this, refreshing on
+# a route like /projects would hit Netlify's server and 404, since no such
+# file exists on disk — every path must fall back to index.html.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
